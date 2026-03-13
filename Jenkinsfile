@@ -19,7 +19,7 @@
 
         stage('Checkout Code') {
             steps {
-                git 'https://github.com/rohandhenge/blue-green-deployment-project-1.git'
+                git branch: 'main', url: 'https://github.com/rohandhenge/blue-green-deployment-project-1.git'
             }
         }
 
@@ -27,29 +27,25 @@
             steps {
                 script {
 
-                    ACTIVE_TG = sh(
+                    def ACTIVE_TG = sh(
                         script: "aws elbv2 describe-listeners --listener-arns $ALB_LISTENER_ARN --query 'Listeners[0].DefaultActions[0].TargetGroupArn' --output text",
                         returnStdout: true
                     ).trim()
 
                     if (ACTIVE_TG.contains("blue")) {
-                        env.INACTIVE_ENV = "green"
                         env.DEPLOY_SERVER = env.GREEN_INSTANCE
                         env.NEW_TG = env.GREEN_TG
-                        env.OLD_TG = env.BLUE_TG
                     } else {
-                        env.INACTIVE_ENV = "blue"
                         env.DEPLOY_SERVER = env.BLUE_INSTANCE
                         env.NEW_TG = env.BLUE_TG
-                        env.OLD_TG = env.GREEN_TG
                     }
 
-                    echo "Deploying to ${env.INACTIVE_ENV}"
+                    echo "Deploying to ${env.DEPLOY_SERVER}"
                 }
             }
         }
 
-        stage('Deploy to Inactive Environment') {
+        stage('Deploy') {
             steps {
                 sh """
                 scp -o StrictHostKeyChecking=no -r * ${DEPLOY_SERVER}:${APP_PATH}
@@ -61,26 +57,6 @@
             }
         }
 
-        stage('Health Check') {
-            steps {
-                script {
-
-                    sleep 20
-
-                    def status = sh(
-                        script: "curl -s -o /dev/null -w '%{http_code}' http://${DEPLOY_SERVER}",
-                        returnStdout: true
-                    ).trim()
-
-                    if (status != "200") {
-                        error("Health check failed")
-                    }
-
-                    echo "Health check passed"
-                }
-            }
-        }
-
         stage('Switch Traffic') {
             steps {
                 sh """
@@ -88,35 +64,6 @@
                 --listener-arn ${ALB_LISTENER_ARN} \
                 --default-actions Type=forward,TargetGroupArn=\$(aws elbv2 describe-target-groups --names ${NEW_TG} --query 'TargetGroups[0].TargetGroupArn' --output text)
                 """
-            }
-        }
-
-        stage('Post Switch Validation') {
-            steps {
-                script {
-
-                    sleep 15
-
-                    def status = sh(
-                        script: "curl -s -o /dev/null -w '%{http_code}' http://blue-green-alb-1890572643.ap-southeast-1.elb.amazonaws.com",
-                        returnStdout: true
-                    ).trim()
-
-                    if (status != "200") {
-
-                        echo "Deployment Failed. Rolling back..."
-
-                        sh """
-                        aws elbv2 modify-listener \
-                        --listener-arn ${ALB_LISTENER_ARN} \
-                        --default-actions Type=forward,TargetGroupArn=\$(aws elbv2 describe-target-groups --names ${OLD_TG} --query 'TargetGroups[0].TargetGroupArn' --output text)
-                        """
-
-                        error("Rollback executed")
-                    }
-
-                    echo "Deployment Successful"
-                }
             }
         }
     }

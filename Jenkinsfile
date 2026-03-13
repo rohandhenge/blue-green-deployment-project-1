@@ -5,7 +5,7 @@ pipeline {
 
         stage('Clone Code') {
             steps {
-                git ' https://github.com/rohandhenge/blue-green-deployment-project-1.git'
+                git 'https://github.com/rohandhenge/blue-green-deployment-project-1.git'
             }
         }
 
